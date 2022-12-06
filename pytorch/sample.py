@@ -17,19 +17,25 @@ def evaluate(model, metrics, test_loader, vocab_desc, vocab_api, repeat, decode_
     ivocab_api = {v: k for k, v in vocab_api.items()}
     ivocab_desc = {v: k for k, v in vocab_desc.items()}
     device = next(model.parameters()).device
+    # device = 'cuda:0'
+    print('evaluate use device:', device)
     
     recall_bleus, prec_bleus = [], []
     local_t = 0
+    import time
     for descs, desc_lens, apiseqs, api_lens in tqdm(test_loader):
         
-        if local_t>1000:
-            break        
+        # if local_t>1000:
+        #     break        
         
         desc_str = indexes2sent(descs[0].numpy(), vocab_desc)
-        
+
+        t = time.time()
         descs, desc_lens = [tensor.to(device) for tensor in [descs, desc_lens]]
         with torch.no_grad():
             sample_words, sample_lens = model.sample(descs, desc_lens, repeat, decode_mode)
+        # print(f'sample time: {time.time()-t}')
+
         # nparray: [repeat x seq_len]
         pred_sents, _ = indexes2sent(sample_words, vocab_api)
         pred_tokens = [sent.split(' ') for sent in pred_sents]
@@ -39,7 +45,7 @@ def evaluate(model, metrics, test_loader, vocab_desc, vocab_api, repeat, decode_
         max_bleu, avg_bleu = metrics.sim_bleu(pred_tokens, ref_tokens)
         recall_bleus.append(max_bleu)
         prec_bleus.append(avg_bleu)
-        
+
         local_t += 1 
         f_eval.write("Batch %d \n" % (local_t))# print the context        
         f_eval.write(f"Query: {desc_str} \n")
@@ -66,6 +72,7 @@ def main(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
+        print('cuda is available~')
         torch.cuda.manual_seed(args.seed)
     else:
         print("Note that our pre-trained models require CUDA to evaluate.")
@@ -79,11 +86,22 @@ def main(args):
     
     # Load model checkpoints   
     model = getattr(models, args.model)(conf)
-    ckpt=f'./output/{args.model}/{args.expname}/{args.timestamp}/models/model_epo{args.reload_from}.pkl'
-    model.load_state_dict(torch.load(ckpt))
+    # ckpt=f'./output/{args.model}/{args.expname}/{args.timestamp}/models/model_epo{args.reload_from}.pkl'
+    ckpt=f'./output/model_epo120000.pkl'
+    # fix: default load model to cpu, f**king slow
+    device = torch.device("cuda")
+    model.load_state_dict(torch.load(ckpt, map_location="cuda:0"))
+    model.to(device)
+
+    import time
+    # time in MM-DD-HH-mm format
+    time_str = time.strftime("%m-%d-%H-%M", time.localtime())
     
-    f_eval = open(f"./output/{args.model}/{args.expname}/results.txt".format(args.model, args.expname), "w")
+    f_eval = open(f"./output/{args.model}/{args.expname}/{time_str}results.txt".format(args.model, args.expname), "w")
     
+    # save args to result
+    f_eval.write(f"Args: {vars(args)} \n")
+
     evaluate(model, metrics, test_loader, vocab_desc, vocab_api, args.n_samples, args.decode_mode , f_eval)
 
 if __name__ == "__main__":

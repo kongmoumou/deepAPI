@@ -43,6 +43,9 @@ def train(args):
         device = torch.device(f"cuda:{args.gpu_id}" if torch.cuda.is_available() and args.gpu_id>-1 else "cpu")
     print(device)
     n_gpu = torch.cuda.device_count() if args.gpu_id<0 else 1
+    # fix RuntimeError: CuDNN error: CUDNN_STATUS_SUCCESS
+    # see https://github.com/xingyizhou/CenterNet/issues/596#issuecomment-689294836
+    torch.backends.cudnn.benchmark = False
     print(f"num of gpus:{n_gpu}")
     # Set the random seed manually for reproducibility.
     random.seed(args.seed)
@@ -91,7 +94,9 @@ def train(args):
             {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
             {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
     ]    
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=config['lr'], eps=config['adam_epsilon'])        
+    # 
+    # optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=config['lr'], eps=config['adam_epsilon'])        
+    optimizer = torch.optim.Adam(optimizer_grouped_parameters, lr=config['lr'], eps=config['adam_epsilon'])        
     scheduler = get_cosine_schedule_with_warmup(
             optimizer, num_warmup_steps=config['warmup_steps'], 
             num_training_steps=len(train_loader)*config['epochs']) # do not foget to modify the number when dataset is changed
